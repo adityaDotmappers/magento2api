@@ -1,6 +1,18 @@
 import requests
 import json
 import csv
+import sys
+import json
+from datetime import datetime
+
+
+csv.field_size_limit(sys.maxsize)
+
+try:
+    with open('cats_ids.csv', 'rb') as f:
+        CAT_IDs = json.load(f)
+except:
+    CAT_IDs = {}
 
 
 class Product:
@@ -10,6 +22,9 @@ class Product:
         self.product = dict.fromkeys(keys)
         self.productDic = prodDic
         self.createProduct()
+
+    def get(self):
+        return {'product': self.product}
 
     def createProduct(self):
         self.product['sku'] = self.get_sku()
@@ -83,9 +98,17 @@ class m2api(object):
         super(m2api, self).__init__()
         self.url = url
         self.token = self.getToken(username, password)
+        self.ALL_CATS_IDS = self.getAllCats()
 
     def addBulkProducts(self, csvFile):
         with open(csvFile, 'rb') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                newProduct = row
+                newProduct['category_ids'] = self.getCategorySet(
+                    newProduct['categories'])
+                new_prd_row = Product(newProduct).get()
+                print(self.addProduct(new_prd_row))
 
     def addProduct(self, data):
         headers = {
@@ -102,6 +125,54 @@ class m2api(object):
         else:
             return False
 
+    def getCategorySet(self, cats):
+        cats = cats.split('/')
+        category_ids = []
+        for cat in cats:
+            if cat in CAT_IDs.keys():
+                category_ids.append(CAT_IDs[cat])
+            elif cat in self.ALL_CATS_IDS.keys():
+                category_ids.append(self.ALL_CATS_IDS[cat])
+                CAT_IDs[cat] = self.ALL_CATS_IDS[cat]
+            else:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Authorization": "Bearer " + self.token
+                }
+                data = {
+                    "category": {
+                        "name": cat,
+                        "parent_id": category_ids[-1],
+                        "isActive": "false"
+                    }
+                }
+                newcat = self.m2req(
+                    self.url+'rest/V1/categories', headers=headers, data=json.dumps(data))
+                newcat = json.loads(newcat)
+                category_ids.append(newcat['id'])
+                CAT_IDs[newcat['name']] = newcat['id']
+        return category_ids
+
+    def getAllCats(self):
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": "Bearer " + self.token
+        }
+        allCats = requests.get(
+            self.url+'rest/all/V1/categories', headers=headers)
+        allCats = json.loads(allCats.content)
+        cat_dic = {}
+        self.getCatsData(allCats['children_data'], cat_dic)
+        return cat_dic
+
+    def getCatsData(self, data, cat_dic):
+        for cat in data:
+            cat_dic[cat['name']] = str(cat['id'])
+            if len(cat['children_data']):
+                self.getCatsData(cat['children_data'], cat_dic)
+
     def getToken(self, username, password):
         payload = {
             "username": username,
@@ -111,7 +182,6 @@ class m2api(object):
         headers = {
             "Content-Type": 'application/json',
             "Accept": "application/json"
-            # "Content-Length" str(len(data))
         }
         token_url = self.url + "rest/V1/integration/admin/token"
         return json.loads(self.m2req(token_url, headers=headers, data=data))
@@ -130,3 +200,4 @@ class m2api(object):
         except Exception as e:
             print(e)
             raise
+
