@@ -2,8 +2,6 @@ import requests
 import json
 import csv
 import sys
-import json
-from datetime import datetime
 
 
 csv.field_size_limit(sys.maxsize)
